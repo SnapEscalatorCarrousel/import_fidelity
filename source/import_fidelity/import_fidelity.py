@@ -1,0 +1,383 @@
+# !/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+#
+# Inspired by:
+# https://infinitekind.tenderapp.com/discussions/moneydance-development/7713-how-to-createupdate-an-investment-transaction
+# https://infinitekind.tenderapp.com/discussions/moneydance-development/10510-python-create-investment-transaction
+# updated by Stuart Beesley December 2025
+
+global moneydance, moneydance_ui, moneydance_data, moneydance_extension_parameter, moneydance_extension_loader, moneydance_this_fm
+global moneydance_script_fixed_parameter, moneydance_action_context, moneydance_action_event
+
+if "moneydance" in globals(): MD_REF = moneydance  # Make own copy of reference as MD removes it once main thread ends.. Don't use/hold on to _data variable
+if "MD_REF" not in globals(): raise Exception("ERROR: 'moneydance' / 'MD_REF' NOT set!?")
+
+from java.lang import System
+
+
+import sys
+import traceback
+import csv
+from datetime import datetime
+
+from java.awt import FileDialog
+from javax.swing import SwingUtilities
+from javax.swing.filechooser import FileFilter
+from java.io import File, FilenameFilter
+
+from com.infinitekind.moneydance.model import ParentTxn, AbstractTxn, InvestTxnType, InvestFields, AccountUtil, TxnSearch, Account
+from com.moneydance.apps.md.controller import UserPreferences
+
+if MD_REF.getBuild() >= 5100: from com.infinitekind.util import AppDebug                                                # noqa
+if MD_REF.getBuild() >= 4097: from com.infinitekind.util import DateUtil
+
+# NOTE - only put variables here that do not lock on to MD internals.. Ideally move all inside doMain()
+useStuartsKey = 0
+
+class QuickAbortThisScriptException(Exception): pass      # This is a way to quickly exit the script
+
+#####################################################
+class FileExtensionFilter(FileFilter, FilenameFilter):
+
+    def __init__(self, acceptableExtensions, defaultExtension=None):
+        self.extensions = []
+        if defaultExtension is not None:
+            self.defaultExtension = defaultExtension.lstrip('.').lower()
+        else:
+            self.defaultExtension = None
+
+        for ext in acceptableExtensions:
+            if ext is None: continue
+            cleanExt = ext.lower()
+            while cleanExt.startswith('.'):
+                cleanExt = cleanExt[1:]
+            if cleanExt and cleanExt not in self.extensions:
+                self.extensions.append(cleanExt)
+
+    # FilenameFilter
+    def accept(self, dirOrFile, name=None):
+        if name is None:
+            f = dirOrFile
+            return self.accept(f.getParentFile() or File("."), f.getName())
+
+        dotIdx = name.rfind('.')
+        if dotIdx <= 0: return False
+
+        ext = name[dotIdx + 1:].lower()
+        return ext in self.extensions
+
+    def getDescription(self): return "Import Files"
+#####################################################
+
+def txnKey(row):
+    if (useStuartsKey):
+        if 'Amount' in row:
+            rowAmount = row['Amount']
+        elif 'Amount ($)' in row:
+            rowAmount = row['Amount ($)']
+        else:
+            rowAmount = "?"
+        
+        key = "%s|%s|%s|%s|%s|%s|%s" % (
+            row.get('Run Date') or row.get('Date'),
+            row.get('Account',''),
+            row.get('Action',''),
+            rowAmount,
+            row.get('Symbol',''),
+            row.get('Quantity',''),
+            row.get('Unique',''))
+        return key
+    else:
+        return str(row)
+
+def uniqueTime():
+    if MD_REF.getBuild() >= 4097:
+        return DateUtil.getUniqueCurrentTimeMillis()
+    else:
+        return System.currentTimeMillis()
+
+def myPrint(msg):
+    print("%s" %(msg))
+    System.err.println("%s" %(msg))
+
+def parseAmount(s):
+    if s is None: return 0.0
+    if not s: return 0.0
+    return float(s)
+
+def getSecurityAcct(investAcct, securityName, tickerSymbol):
+    for secAcct in investAcct.getSubAccounts():
+        if secAcct.getAccountType() != Account.AccountType.SECURITY: continue
+        if securityName and secAcct.getCurrencyType().getName() == securityName:
+            return secAcct
+        if tickerSymbol and secAcct.getCurrencyType().getTickerSymbol().strip().lower() == tickerSymbol.strip().lower():
+            return secAcct
+    return None
+
+def dump():
+    tb = traceback.format_exc()
+    trace = traceback.format_stack()
+    theText =  ".\n" \
+               "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n" \
+               "@@@@@ Unexpected error caught!\n".upper()
+    theText += tb
+    for trace_line in trace: theText += trace_line
+    theText += "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
+    myPrint(theText)
+
+
+def doMain():
+    # initialise these here so that their scope is local to doMain - i.e. they will evaporate once doMain completes
+    global MD_REF
+    mdGUI = MD_REF.getUI()
+    book = MD_REF.getCurrentAccountBook()
+    root = MD_REF.getCurrentAccount()
+    strings = mdGUI.getStrings()
+    prefs = MD_REF.getPreferences()
+
+    # define locally scoped variables here...
+    csvFileName = None
+    # csvFileName = '/Users/username/Downloads/fidelity.csv'
+    accountNamePrefix = 'Fidelity '
+    debug = 0
+    online = 1
+    MY_IMPORT_DIR_KEY = "custom_fidelity_import_dir"
+
+    FIID = 'import_fidelity.py'
+    protocolId = 99
+
+    buyStrings = [' BOUGHT ', 'REINVESTMENT ', 'Contributions', 'PURCHASE ']
+    sellStrings = ['REDEMPTION ', 'SOLD ']
+    sellXferStrings = [ 'TRANSFER OF ASSETS ACAT DELIVER' ]
+    divStrings = ['DIVIDEND RECEIVED ']
+    divReinvestStrings = ['Dividend']
+    incStrings = ['LONG-TERM', 'SHORT-TERM']
+
+
+    try:
+
+        if csvFileName is None:
+
+            fwin = mdGUI.getFileChooser(None, strings.choose_import_file + " (CSV, TSV, TXT)", FileDialog.LOAD,
+                                  FileExtensionFilter(["csv", "tsv", "txt"]), [MY_IMPORT_DIR_KEY, UserPreferences.IMPORT_DIR, UserPreferences.DATA_DIR])
+            fwin.setVisible(True)
+            fileName = fwin.getFile()
+            dirName = fwin.getDirectory()
+
+            if (fileName is None or dirName is None):
+                msg = "No file selected - quitting"
+                myPrint(msg)
+                mdGUI.showInfoMessage(msg)
+                raise QuickAbortThisScriptException
+
+            prefs.setSetting(MY_IMPORT_DIR_KEY, dirName)
+            
+            fileToImport = File(dirName, fileName)
+            myPrint("File selected: %s" %(fileToImport))
+            if (not fileToImport.exists() or not fileToImport.canRead()):
+                msg = strings.unable_to_read_file + ": " + fileToImport.getAbsolutePath()
+                myPrint(msg)
+                mdGUI.showErrorMessage(msg)
+                raise QuickAbortThisScriptException
+            csvFileName = fileToImport.getAbsolutePath()
+
+        with open(csvFileName, 'rb') as csvFile:        # correct approach for python 2.7 - unicode strings...
+
+            # strip out BOM (if it exists)
+            first = csvFile.read(3)
+            if first != '\xef\xbb\xbf': csvFile.seek(0)
+
+            reader = csv.reader(csvFile)
+            firstRow = next(reader)
+
+            try:
+                while not any(firstRow): firstRow = next(reader)
+            except:
+                mdGUI.showErrorMessage("ERROR reading csv file")
+                raise
+
+            dict_reader = csv.DictReader(csvFile, fieldnames=firstRow)
+
+            if (online):
+                # Remove entries already in Moneydance
+                new_dict = {}
+                for row in dict_reader:
+                    if txnKey(row) in new_dict:
+                        # Duplicate entry in CSV file
+                        row['Unique']=str(uniqueTime())
+                    new_dict[txnKey(row)] = row
+
+                class IsMatch(TxnSearch):
+                    def matchesAll(self):
+                        return False
+
+                    def matches(self, txn):
+                        if (txn.getFiTxnId(protocolId) in new_dict):
+                            del new_dict[txn.getFiTxnId(protocolId)]
+                            return True
+                        else:
+                            return False
+
+                results = book.getTransactionSet().getTransactions(IsMatch())                                           # noqa
+
+                dict_reader = list(new_dict.values())
+
+            countCreated = 0
+            for row in dict_reader:
+                if ('Account' not in row): continue
+                if (not row['Account']): continue
+
+                if (debug): myPrint(row)
+                
+                accountName = accountName1 = accountNamePrefix + row['Account']
+                account = root.getAccountByName(accountName1)
+                if (not account):
+                    accountName = accountName2 = row['Account']
+                    account = root.getAccountByName(accountName2)
+                    if (not account):
+                        txt = "ERROR: account: '%s' AND '%s' NOT found" %(accountName1, accountName2)
+                        myPrint(txt)
+                        continue
+
+                if (account):
+                    if 'Amount' in row:
+                        rowAmount = row['Amount']
+                    elif 'Amount ($)' in row:
+                        rowAmount = row['Amount ($)']
+                    else:
+                        txt = "ERROR: amount not found: '%s'" %(row)
+                        myPrint(txt)
+                        continue
+
+                    if 'Run Date' in row:
+                        date_string = row['Run Date']
+                    elif 'Date' in row:
+                        date_string = row['Date']
+                    else:
+                        txt = "ERROR: date not found: '%s'" %(row)
+                        myPrint(txt)
+                        continue
+
+                    try:
+                        format_string = "%m/%d/%Y"
+                        dateDate = datetime.strptime(date_string, format_string).date()
+                    except ValueError:
+                        format_string = "%m/%d/%y"
+                        dateDate = datetime.strptime(date_string, format_string).date()
+
+                    dateString = dateDate.strftime('%Y%m%d')
+                    date = int(dateString)
+
+                    desc = row['Action']
+                    memo = row['Action']
+                    niceCheckNum = ""
+
+                    pTxn = ParentTxn.makeParentTxn(
+                        book,
+                        date,
+                        date,
+                        uniqueTime(),
+                        niceCheckNum,
+                        account,
+                        desc,
+                        memo,
+                        -1L,
+                        AbstractTxn.ClearedStatus.UNRECONCILED.legacyValue())                                           # noqa
+
+                    fields = InvestFields()
+                    action = row['Action']
+                    if any(substring in action for substring in buyStrings):
+                        txnType = InvestTxnType.BUY
+                    elif any(substring in action for substring in sellStrings):
+                        txnType = InvestTxnType.SELL
+                    elif any(substring in action for substring in sellXferStrings):
+                        txnType = InvestTxnType.SELL_XFER
+                    elif any(substring in action for substring in divStrings):
+                        txnType = InvestTxnType.DIVIDEND
+                    elif any(substring in action for substring in divReinvestStrings):
+                        txnType = InvestTxnType.DIVIDEND_REINVEST
+                    elif any(substring in action for substring in incStrings):
+                        txnType = InvestTxnType.MISCINC
+                    else:
+                        symbol = row['Symbol'].strip()
+                        if (symbol):
+                            txt = "ERROR: unknown action: '%s'" %(action)
+                            myPrint(txt)
+                        txnType = InvestTxnType.BANK
+
+                    fields.setFieldStatus(txnType, pTxn)
+                    fields.date = date
+                    fields.taxDate = date
+                    fields.checkNum = niceCheckNum
+                    fields.payee = desc
+                    fields.memo = memo
+
+                    if (txnType == InvestTxnType.BANK):
+                        fields.amount = fields.curr.getLongValue(parseAmount(rowAmount))
+
+                    elif (txnType in [InvestTxnType.BUY, InvestTxnType.SELL, InvestTxnType.DIVIDEND, InvestTxnType.SELL_XFER, InvestTxnType.MISCINC, InvestTxnType.DIVIDEND_REINVEST]):
+                        csvDescription = row['Description']
+                        symbol = row['Symbol']
+
+                        securityAccount = getSecurityAcct(account, csvDescription, symbol)
+                        if (not securityAccount):
+                            txt = "ERROR: security account: '%s' '%s' NOT found" %(csvDescription, symbol)
+                            myPrint(txt)
+                        else:
+                            security = securityAccount.getCurrencyType()
+                            if (not security):
+                                txt = "ERROR: security: '%s' '%s' NOT found" %(csvDescription, symbol)
+                                myPrint(txt)
+                            else:
+                                fields.security = securityAccount
+                                fields.amount = fields.curr.getLongValue(abs(parseAmount(rowAmount)))
+
+                                if (txnType == InvestTxnType.DIVIDEND or txnType == InvestTxnType.MISCINC):
+                                    fields.shares = 0
+                                    fields.price = 1
+                                else:
+                                    totalAmount = abs(parseAmount(rowAmount))
+                                    shares = abs(parseAmount(row['Quantity']))
+                                    price = 1.0 if (totalAmount == 0.0 or shares == 0.0) else totalAmount/shares
+
+                                    fields.shares = securityAccount.getCurrencyType().getLongValue(shares)
+                                    fields.price = price
+
+                    fields.xfrAcct = AccountUtil.getDefaultTransferAcct(account)
+                    fields.fee = 0
+                    if MD_REF.getBuild() >= 5202:
+                        fields.feeAcct = AccountUtil.getDefaultFeeCategoryForAcct(account)                              # noqa
+                    else:
+                        fields.feeAcct = AccountUtil.getDefaultCategoryForAcct(account)
+                    fields.category = AccountUtil.getDefaultCategoryForAcct(account)
+                    fields.storeFields(pTxn)
+                    pTxn.setIsNew(1)
+                    if (online):
+                        pTxn.setFIID(FIID)
+                        pTxn.setFiTxnId(protocolId, txnKey(row))
+                    pTxn.syncItem()
+                    countCreated += 1
+                    if (debug): myPrint("stored fields %s as txn %s" %(fields, pTxn))
+        msg = "Created %s transactions" %(countCreated)
+        myPrint(msg)
+        mdGUI.showInfoMessage(msg)
+
+    except QuickAbortThisScriptException: pass
+    except:
+        e_type, exc_value, exc_traceback = sys.exc_info()
+        txt = "Error detected whilst running script: '%s'" %(exc_value)
+        myPrint(txt)
+        dump()
+
+    finally:
+        # nuke moneydance references that can prevent garbage collection...
+        del mdGUI
+        del book
+        del root
+        del strings
+        del prefs
+        del MD_REF
+
+
+SwingUtilities.invokeLater(doMain)
