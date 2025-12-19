@@ -99,6 +99,7 @@ def uniqueTime():
 
 def myPrint(msg):
     print("%s" %(msg))
+#    MD_REF.getUI().setStatus(msg, -1.0)
     System.err.println("%s" %(msg))
 
 def parseAmount(s):
@@ -154,6 +155,7 @@ def doMain():
     divReinvestStrings = ['Dividend']
     incStrings = ['LONG-TERM', 'SHORT-TERM']
 
+    importantMessages = ''
 
     try:
 
@@ -199,6 +201,7 @@ def doMain():
 
             dict_reader = csv.DictReader(csvFile, fieldnames=firstRow)
 
+            countDuplicates = 0
             if (online):
                 # Remove entries already in Moneydance
                 new_dict = {}
@@ -220,7 +223,7 @@ def doMain():
                             return False
 
                 results = book.getTransactionSet().getTransactions(IsMatch())                                           # noqa
-
+                countDuplicates = results.getSize()
                 dict_reader = list(new_dict.values())
 
             countCreated = 0
@@ -237,6 +240,7 @@ def doMain():
                     account = root.getAccountByName(accountName2)
                     if (not account):
                         txt = "ERROR: account: '%s' AND '%s' NOT found" %(accountName1, accountName2)
+                        importantMessages += txt + '\n';
                         myPrint(txt)
                         continue
 
@@ -247,6 +251,7 @@ def doMain():
                         rowAmount = row['Amount ($)']
                     else:
                         txt = "ERROR: amount not found: '%s'" %(row)
+                        importantMessages += txt + '\n';
                         myPrint(txt)
                         continue
 
@@ -256,6 +261,7 @@ def doMain():
                         date_string = row['Date']
                     else:
                         txt = "ERROR: date not found: '%s'" %(row)
+                        importantMessages += txt + '\n';
                         myPrint(txt)
                         continue
 
@@ -303,6 +309,7 @@ def doMain():
                         symbol = row['Symbol'].strip()
                         if (symbol):
                             txt = "ERROR: unknown action: '%s'" %(action)
+                            importantMessages += txt + '\n';
                             myPrint(txt)
                         txnType = InvestTxnType.BANK
 
@@ -323,11 +330,13 @@ def doMain():
                         securityAccount = getSecurityAcct(account, csvDescription, symbol)
                         if (not securityAccount):
                             txt = "ERROR: security account: '%s' '%s' NOT found" %(csvDescription, symbol)
+                            importantMessages += txt + '\n';
                             myPrint(txt)
                         else:
                             security = securityAccount.getCurrencyType()
                             if (not security):
                                 txt = "ERROR: security: '%s' '%s' NOT found" %(csvDescription, symbol)
+                                importantMessages += txt + '\n';
                                 myPrint(txt)
                             else:
                                 fields.security = securityAccount
@@ -359,7 +368,13 @@ def doMain():
                     pTxn.syncItem()
                     countCreated += 1
                     if (debug): myPrint("stored fields %s as txn %s" %(fields, pTxn))
-        msg = "Created %s transactions" %(countCreated)
+
+        if (countDuplicates):
+            msg = "Created %s transactions\nIgnored %s duplicate transactions" %(countCreated, countDuplicates)
+        else:
+            msg = "Created %s transactions" %(countCreated)
+        if (importantMessages):
+            msg += '\n\n' + importantMessages;
         myPrint(msg)
         mdGUI.showInfoMessage(msg)
 
