@@ -26,7 +26,7 @@ from javax.swing import SwingUtilities
 from javax.swing.filechooser import FileFilter
 from java.io import File, FilenameFilter
 
-from com.infinitekind.moneydance.model import ParentTxn, AbstractTxn, InvestTxnType, InvestFields, AccountUtil, TxnSearch, Account
+from com.infinitekind.moneydance.model import ParentTxn, AbstractTxn, InvestTxnType, InvestFields, AccountUtil, TxnSearch, Account, AcctFilter
 from com.moneydance.apps.md.controller import UserPreferences
 
 if MD_REF.getBuild() >= 5100: from com.infinitekind.util import AppDebug                                                # noqa
@@ -114,6 +114,14 @@ def getSecurityAcct(investAcct, securityName, tickerSymbol):
             return secAcct
         if tickerSymbol and secAcct.getCurrencyType().getTickerSymbol().strip().lower() == tickerSymbol.strip().lower():
             return secAcct
+    return None
+
+def getInvestAcctByNumber(book, number):
+    allAccounts = AccountUtil.allMatchesForSearch(book, AcctFilter.ALL_ACCOUNTS_FILTER)
+    for account in allAccounts:
+        if account.getAccountType() == Account.AccountType.INVESTMENT:
+            if number and account.getInvestAccountNumber().strip().lower() == number.strip().lower():
+                return account
     return None
 
 def dump():
@@ -239,10 +247,13 @@ def doMain():
                     accountName = accountName2 = row['Account']
                     account = root.getAccountByName(accountName2)
                     if (not account):
-                        txt = "ERROR: account: '%s' AND '%s' NOT found" %(accountName1, accountName2)
-                        importantMessages += txt + '\n';
-                        myPrint(txt)
-                        continue
+                        accountNumber = row['Account Number']
+                        account = getInvestAcctByNumber(book, accountNumber)
+                        if (not account):
+                            txt = "ERROR: account: '%s' AND '%s' with number '%s' NOT found" %(accountName1, accountName2, accountNumber)
+                            importantMessages += txt + '\n';
+                            myPrint(txt)
+                            continue
 
                 if (account):
                     if 'Amount' in row:
