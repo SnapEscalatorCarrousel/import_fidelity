@@ -116,14 +116,6 @@ def getSecurityAcct(investAcct, securityName, tickerSymbol):
             return secAcct
     return None
 
-def getInvestAcctByNumber(book, number):
-    allAccounts = AccountUtil.allMatchesForSearch(book, AcctFilter.ALL_ACCOUNTS_FILTER)
-    for account in allAccounts:
-        if account.getAccountType() == Account.AccountType.INVESTMENT:
-            if number and account.getInvestAccountNumber().strip().lower() == number.strip().lower():
-                return account
-    return None
-
 def dump():
     tb = traceback.format_exc()
     trace = traceback.format_stack()
@@ -234,22 +226,50 @@ def doMain():
                 countDuplicates = results.getSize()
                 dict_reader = list(new_dict.values())
 
+            # Create dicts of investment accounts by name and by number
+            allAccounts = AccountUtil.allMatchesForSearch(book, AcctFilter.ALL_ACCOUNTS_FILTER)
+            investAccountsByName = {}
+            investAccountsByNumber = {}
+            for account in allAccounts:
+                if account.getAccountType() == Account.AccountType.INVESTMENT:
+                    accountName = account.getAccountName().strip().lower()
+                    if accountName:
+                        if accountName in investAccountsByName:
+                            txt = "WARN: more than one investment account with name: '%s'" %(accountName)
+                            importantMessages += txt + '\n';
+                            myPrint(txt)
+                        else:
+                            investAccountsByName[accountName] = account
+
+                    accountNumber = account.getInvestAccountNumber().strip().lower()
+                    if accountNumber:
+                        if accountNumber in investAccountsByNumber:
+                            txt = "WARN: more than one investment account with number: '%s'" %(accountNumber)
+                            importantMessages += txt + '\n';
+                            myPrint(txt)
+                        else:
+                            investAccountsByNumber[accountNumber] = account
+                
             countCreated = 0
             for row in dict_reader:
                 if ('Account' not in row): continue
                 if (not row['Account']): continue
 
                 if (debug): myPrint(row)
-                
-                accountName = accountName1 = accountNamePrefix + row['Account']
-                account = root.getAccountByName(accountName1)
-                if (not account):
-                    accountName = accountName2 = row['Account']
-                    account = root.getAccountByName(accountName2)
-                    if (not account):
-                        accountNumber = row['Account Number']
-                        account = getInvestAcctByNumber(book, accountNumber)
-                        if (not account):
+
+                accountName1 = accountNamePrefix + row['Account']
+                accountName1 = accountName1.strip().lower()
+                if (accountName1 in investAccountsByName):
+                    account = investAccountsByName[accountName1]
+                else:
+                    accountName2 = row['Account'].strip().lower()
+                    if (accountName2 in investAccountsByName):
+                        account = investAccountsByName[accountName2]
+                    else:
+                        accountNumber = row['Account Number'].strip().lower()
+                        if (accountNumber and accountNumber in investAccountsByNumber):
+                            account = investAccountsByNumber[accountNumber]
+                        else:
                             txt = "ERROR: account: '%s' AND '%s' with number '%s' NOT found" %(accountName1, accountName2, accountNumber)
                             importantMessages += txt + '\n';
                             myPrint(txt)
