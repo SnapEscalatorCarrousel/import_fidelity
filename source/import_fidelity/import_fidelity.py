@@ -145,7 +145,7 @@ def doMain():
     online = 1
     MY_IMPORT_DIR_KEY = "custom_fidelity_import_dir"
 
-    FIID = 'import_fidelity.py'
+    FIID = 'script:import_fidelity.py'
     protocolId = 99
 
     buyStrings = [' BOUGHT ', 'REINVESTMENT ', 'Contributions', 'PURCHASE ']
@@ -396,6 +396,8 @@ def doMain():
                     if (online):
                         pTxn.setFIID(FIID)
                         pTxn.setFiTxnId(protocolId, txnKey(row))
+                        pTxn.setParameter("ol.orig-payee", desc)
+                        pTxn.setParameter("ol.orig-memo", memo)
                     pTxn.syncItem()
                     countCreated += 1
                     if (debug): myPrint("stored fields %s as txn %s" %(fields, pTxn))
@@ -415,6 +417,7 @@ def doMain():
         txt = "Error detected whilst running script: '%s'" %(exc_value)
         myPrint(txt)
         dump()
+        mdGUI.showErrorMessage(txt + " (review console)")
 
     finally:
         # nuke moneydance references that can prevent garbage collection...
