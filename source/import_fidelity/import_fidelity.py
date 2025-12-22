@@ -405,7 +405,7 @@ def doMain():
         else:
             msg = "Created %s transactions" %(countCreated)
         if (importantMessages):
-            msg += '\n\n' + importantMessages;
+            msg += '\n\n' + importantMessages + ' '; # + ' ' needed to not skip last word of message
         myPrint(msg)
         mdGUI.showInfoMessage(msg)
 
