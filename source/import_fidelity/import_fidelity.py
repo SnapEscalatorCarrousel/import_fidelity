@@ -19,6 +19,8 @@ from java.lang import System
 import sys
 import traceback
 import csv
+import ast
+import json
 from datetime import datetime
 
 from java.awt import FileDialog
@@ -89,7 +91,7 @@ def txnKey(row):
             row.get('Unique',''))
         return key
     else:
-        return str(row)
+        return json.dumps(row, sort_keys=True, separators=(',', ':'))
 
 def uniqueTime():
     if MD_REF.getBuild() >= 4097:
@@ -146,7 +148,8 @@ def doMain():
     MY_IMPORT_DIR_KEY = "custom_fidelity_import_dir"
 
     FIID = 'script:import_fidelity.py'
-    protocolId = 99
+    protocolId = 100 # change to 100
+    oldProtocolId = 99
 
     buyStrings = [' BOUGHT ', 'REINVESTMENT ', 'Contributions', 'PURCHASE ']
     sellStrings = ['REDEMPTION ', 'SOLD ']
@@ -216,15 +219,34 @@ def doMain():
                         return False
 
                     def matches(self, txn):
-                        if (txn.getFiTxnId(protocolId) in new_dict):
-                            del new_dict[txn.getFiTxnId(protocolId)]
-                            return True
+                        if isinstance(txn, ParentTxn):
+                            newTxnId = None
+                            oldTxnId = txn.getFiTxnId(oldProtocolId)
+                            if (oldTxnId):
+                                try:
+                                    loadedDict = ast.literal_eval(oldTxnId)
+                                    newTxnId = json.dumps(loadedDict, sort_keys=True, separators=(',', ':'))
+                                except ValueError as e:
+                                    print("Error evaluating string: {e}")
+
+                                if newTxnId:
+                                    txn.setEditingMode()
+                                    txn.setFiTxnId(protocolId, newTxnId)
+                                    txn.setFiTxnId(oldProtocolId, None)
+                                    txn.getParentTxn().syncItem()
+
+                            newTxnId = txn.getFiTxnId(protocolId)
+                            if (newTxnId):
+                                if (newTxnId in new_dict):
+                                   del new_dict[newTxnId]
+                                   return True
                         else:
                             return False
 
                 results = book.getTransactionSet().getTransactions(IsMatch())                                           # noqa
                 countDuplicates = results.getSize()
                 dict_reader = list(new_dict.values())
+
 
             # Create dicts of investment accounts by name and by number
             allAccounts = AccountUtil.allMatchesForSearch(book, AcctFilter.ALL_ACCOUNTS_FILTER)
@@ -395,7 +417,7 @@ def doMain():
                     pTxn.setIsNew(1)
                     if (online):
                         pTxn.setFIID(FIID)
-                        pTxn.setFiTxnId(protocolId, txnKey(row))
+                        pTxn.setFiTxnId(protocolId, key(row)) 
                         pTxn.setParameter("ol.orig-payee", desc)
                         pTxn.setParameter("ol.orig-memo", memo)
                     pTxn.syncItem()
