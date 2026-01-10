@@ -417,7 +417,7 @@ def doMain():
                     pTxn.setIsNew(1)
                     if (online):
                         pTxn.setFIID(FIID)
-                        pTxn.setFiTxnId(protocolId, key(row)) 
+                        pTxn.setFiTxnId(protocolId, txnKey(row)) 
                         pTxn.setParameter("ol.orig-payee", desc)
                         pTxn.setParameter("ol.orig-memo", memo)
                     pTxn.syncItem()
