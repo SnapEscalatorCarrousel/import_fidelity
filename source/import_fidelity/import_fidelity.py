@@ -24,7 +24,7 @@ import json
 from datetime import datetime
 
 from java.awt import FileDialog
-from javax.swing import SwingUtilities
+from javax.swing import SwingUtilities, JOptionPane
 from javax.swing.filechooser import FileFilter
 from java.io import File, FilenameFilter
 
@@ -152,11 +152,12 @@ def doMain():
     oldProtocolId = 99
 
     buyStrings = [' BOUGHT ', 'REINVESTMENT ', 'Contributions', 'PURCHASE ']
-    sellStrings = ['REDEMPTION ', 'SOLD ']
+    sellStrings = ['REDEMPTION ', 'SOLD ', 'IN LIEU OF FRX SHARE']
     sellXferStrings = [ 'TRANSFER OF ASSETS ACAT DELIVER' ]
-    divStrings = ['DIVIDEND RECEIVED ']
+    divStrings = ['DIVIDEND RECEIVED ', 'REGULATORY FEE ADJ']
     divReinvestStrings = ['Dividend']
     incStrings = ['LONG-TERM', 'SHORT-TERM']
+    miscExpStrings = ['FEE CHARGED', 'TAX PAID']
 
     importantMessages = ''
 
@@ -273,29 +274,49 @@ def doMain():
                             investAccountsByNumber[accountNumber] = account
                 
             countCreated = 0
+            accountForSingleAccountCsv = None
             for row in dict_reader:
-                if ('Account' not in row): continue
-                if (not row['Account']): continue
-
+                if (not row['Action']): continue
                 if (debug): myPrint(row)
 
-                accountName1 = accountNamePrefix + row['Account']
-                accountName1 = accountName1.strip().lower()
-                if (accountName1 in investAccountsByName):
-                    account = investAccountsByName[accountName1]
-                else:
-                    accountName2 = row['Account'].strip().lower()
-                    if (accountName2 in investAccountsByName):
-                        account = investAccountsByName[accountName2]
-                    else:
-                        accountNumber = row['Account Number'].strip().lower()
-                        if (accountNumber and accountNumber in investAccountsByNumber):
-                            account = investAccountsByNumber[accountNumber]
-                        else:
-                            txt = "ERROR: account: '%s' AND '%s' with number '%s' NOT found" %(accountName1, accountName2, accountNumber)
-                            importantMessages += txt + '\n';
-                            myPrint(txt)
+                account = None
+                if ('Account' not in row):
+                    if (not accountForSingleAccountCsv):
+                        investAccountNames = sorted(investAccountsByName.keys())
+                        selection = JOptionPane.showInputDialog(
+                            None,
+                            "Select an investment account:",
+                            "Investment Account Selection Dialog",
+                            JOptionPane.QUESTION_MESSAGE,
+                            None,
+                            investAccountNames,
+                            investAccountNames[0])
+
+                        if selection is None:
                             continue
+
+                        accountForSingleAccountCsv = investAccountsByName[selection]
+
+                    account = accountForSingleAccountCsv
+                    
+                else:
+                    accountName1 = accountNamePrefix + row['Account']
+                    accountName1 = accountName1.strip().lower()
+                    if (accountName1 in investAccountsByName):
+                        account = investAccountsByName[accountName1]
+                    else:
+                        accountName2 = row['Account'].strip().lower()
+                        if (accountName2 in investAccountsByName):
+                            account = investAccountsByName[accountName2]
+                        else:
+                            accountNumber = row['Account Number'].strip().lower()
+                            if (accountNumber and accountNumber in investAccountsByNumber):
+                                account = investAccountsByNumber[accountNumber]
+                            else:
+                                txt = "ERROR: account: '%s' AND '%s' with number '%s' NOT found" %(accountName1, accountName2, accountNumber)
+                                importantMessages += txt + '\n';
+                                myPrint(txt)
+                                continue
 
                 if (account):
                     if 'Amount' in row:
@@ -358,44 +379,39 @@ def doMain():
                         txnType = InvestTxnType.DIVIDEND_REINVEST
                     elif any(substring in action for substring in incStrings):
                         txnType = InvestTxnType.MISCINC
+                    elif any(substring in action for substring in miscExpStrings):
+                        txnType = InvestTxnType.MISCEXP
                     else:
                         symbol = row['Symbol'].strip()
                         if (symbol):
-                            txt = "ERROR: unknown action: '%s'" %(action)
+                            txt = "ERROR: unknown action: '%s' . Will record as Xfr" %(action)
                             importantMessages += txt + '\n';
                             myPrint(txt)
                         txnType = InvestTxnType.BANK
 
-                    fields.setFieldStatus(txnType, pTxn)
-                    fields.date = date
-                    fields.taxDate = date
-                    fields.checkNum = niceCheckNum
-                    fields.payee = desc
-                    fields.memo = memo
-
-                    if (txnType == InvestTxnType.BANK):
-                        fields.amount = fields.curr.getLongValue(parseAmount(rowAmount))
-
-                    elif (txnType in [InvestTxnType.BUY, InvestTxnType.SELL, InvestTxnType.DIVIDEND, InvestTxnType.SELL_XFER, InvestTxnType.MISCINC, InvestTxnType.DIVIDEND_REINVEST]):
+                    if (txnType in [InvestTxnType.BUY, InvestTxnType.SELL, InvestTxnType.DIVIDEND, InvestTxnType.SELL_XFER, InvestTxnType.MISCINC, InvestTxnType.DIVIDEND_REINVEST, InvestTxnType.MISCEXP]):
                         csvDescription = row['Description']
                         symbol = row['Symbol']
 
                         securityAccount = getSecurityAcct(account, csvDescription, symbol)
                         if (not securityAccount):
-                            txt = "ERROR: security account: '%s' '%s' NOT found" %(csvDescription, symbol)
+                            txt = "ERROR: security account: '%s' '%s' NOT found when processing invest account '%s.' Please manually create security and/or add it to the invest account. Will process as Xfr" %(csvDescription, symbol, account.getAccountName())
                             importantMessages += txt + '\n';
                             myPrint(txt)
+                            txnType = InvestTxnType.BANK
                         else:
                             security = securityAccount.getCurrencyType()
                             if (not security):
-                                txt = "ERROR: security: '%s' '%s' NOT found" %(csvDescription, symbol)
+                                txt = "ERROR: security: '%s' '%s' NOT found. Will process as Xfr" %(csvDescription, symbol)
                                 importantMessages += txt + '\n';
                                 myPrint(txt)
+                                txnType = InvestTxnType.BANK
                             else:
+                                fields.setFieldStatus(txnType, pTxn)
                                 fields.security = securityAccount
                                 fields.amount = fields.curr.getLongValue(abs(parseAmount(rowAmount)))
 
-                                if (txnType == InvestTxnType.DIVIDEND or txnType == InvestTxnType.MISCINC):
+                                if (txnType == InvestTxnType.DIVIDEND or txnType == InvestTxnType.MISCINC or txnType == InvestTxnType.MISCEXP):
                                     fields.shares = 0
                                     fields.price = 1
                                 else:
@@ -405,6 +421,16 @@ def doMain():
 
                                     fields.shares = securityAccount.getCurrencyType().getLongValue(shares)
                                     fields.price = price
+
+                    if (txnType == InvestTxnType.BANK):
+                        fields.setFieldStatus(txnType, pTxn)
+			fields.amount = fields.curr.getLongValue(parseAmount(rowAmount))
+
+                    fields.date = date
+                    fields.taxDate = date
+                    fields.checkNum = niceCheckNum
+                    fields.payee = desc
+                    fields.memo = memo
 
                     fields.xfrAcct = AccountUtil.getDefaultTransferAcct(account)
                     fields.fee = 0
