@@ -277,7 +277,13 @@ def doMain():
             countCreated = 0
             accountForSingleAccountCsv = None
             for row in dict_reader:
-                if (not row['Action']): continue
+                if ('Action' not in row):
+                    if ('Transaction Type' not in row):
+                        continue
+                if ('Action' in row and not row['Action']):
+                    continue
+                if ('Transaction Type' in row and not row['Transaction Type']):
+                    continue
                 if (debug): myPrint(row)
 
                 account = None
@@ -320,6 +326,16 @@ def doMain():
                                 continue
 
                 if (account):
+                    if 'Action' in row:
+                        rowAction = row['Action']
+                    elif 'Transaction Type' in row:
+                        rowAction = row['Transaction Type']
+                    else:
+                        txt = "ERROR: action not found: '%s'" %(row)
+                        importantMessages += txt + '\n';
+                        myPrint(txt)
+                        continue
+
                     if 'Amount' in row:
                         rowAmount = row['Amount']
                     elif 'Amount ($)' in row:
@@ -350,8 +366,8 @@ def doMain():
                     dateString = dateDate.strftime('%Y%m%d')
                     date = int(dateString)
 
-                    desc = row['Action']
-                    memo = row['Action']
+                    desc = rowAction
+                    memo = rowAction
                     niceCheckNum = ""
 
                     pTxn = ParentTxn.makeParentTxn(
@@ -367,7 +383,7 @@ def doMain():
                         AbstractTxn.ClearedStatus.UNRECONCILED.legacyValue())                                           # noqa
 
                     fields = InvestFields()
-                    action = row['Action']
+                    action = rowAction
                     if any(substring in action for substring in buyStrings):
                         txnType = InvestTxnType.BUY
                     elif any(substring in action for substring in buyXferStrings):
@@ -393,8 +409,20 @@ def doMain():
                         txnType = InvestTxnType.BANK
 
                     if (txnType in [InvestTxnType.BUY, InvestTxnType.SELL, InvestTxnType.DIVIDEND, InvestTxnType.BUY_XFER, InvestTxnType.SELL_XFER, InvestTxnType.MISCINC, InvestTxnType.DIVIDEND_REINVEST, InvestTxnType.MISCEXP]):
-                        csvDescription = row['Description']
-                        symbol = row['Symbol']
+                        if 'Description' in row:
+                            csvDescription = row['Description']
+                        elif 'Transaction Type' in row:
+                            csvDescription = row['Investment']
+                        else:
+                            txt = "ERROR: description not found: '%s'" %(row)
+                            importantMessages += txt + '\n';
+                            myPrint(txt)
+                            continue
+
+                        if 'Symbol' in row:
+                            symbol = row['Symbol']
+                        else:
+                            symbol = '' # not present in retirement account CSV files 
 
                         securityAccount = getSecurityAcct(account, csvDescription, symbol)
                         if (not securityAccount):
@@ -419,7 +447,18 @@ def doMain():
                                     fields.price = 1
                                 else:
                                     totalAmount = abs(parseAmount(rowAmount))
-                                    shares = abs(parseAmount(row['Quantity']))
+
+                                    if 'Quantity' in row:
+                                        rowQuantity = row['Quantity']
+                                    elif 'Shares/Unit' in row:
+                                        rowQuantity = row['Shares/Unit']
+                                    else:
+                                        txt = "ERROR: quantity not found: '%s'" %(row)
+                                        importantMessages += txt + '\n';
+                                        myPrint(txt)
+                                        continue
+
+                                    shares = abs(parseAmount(rowQuantity))
                                     price = 1.0 if (totalAmount == 0.0 or shares == 0.0) else totalAmount/shares
 
                                     fields.shares = securityAccount.getCurrencyType().getLongValue(shares)
