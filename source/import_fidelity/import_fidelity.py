@@ -152,6 +152,7 @@ def doMain():
     oldProtocolId = 99
 
     buyStrings = [' BOUGHT ', 'REINVESTMENT ', 'Contributions', 'PURCHASE ']
+    buyXferStrings = [ 'TRANSFER OF ASSETS ACAT RECEIVE' ]
     sellStrings = ['REDEMPTION ', 'SOLD ', 'IN LIEU OF FRX SHARE']
     sellXferStrings = [ 'TRANSFER OF ASSETS ACAT DELIVER' ]
     divStrings = ['DIVIDEND RECEIVED ', 'REGULATORY FEE ADJ']
@@ -369,6 +370,8 @@ def doMain():
                     action = row['Action']
                     if any(substring in action for substring in buyStrings):
                         txnType = InvestTxnType.BUY
+                    elif any(substring in action for substring in buyXferStrings):
+                        txnType = InvestTxnType.BUY_XFER
                     elif any(substring in action for substring in sellStrings):
                         txnType = InvestTxnType.SELL
                     elif any(substring in action for substring in sellXferStrings):
@@ -389,7 +392,7 @@ def doMain():
                             myPrint(txt)
                         txnType = InvestTxnType.BANK
 
-                    if (txnType in [InvestTxnType.BUY, InvestTxnType.SELL, InvestTxnType.DIVIDEND, InvestTxnType.SELL_XFER, InvestTxnType.MISCINC, InvestTxnType.DIVIDEND_REINVEST, InvestTxnType.MISCEXP]):
+                    if (txnType in [InvestTxnType.BUY, InvestTxnType.SELL, InvestTxnType.DIVIDEND, InvestTxnType.BUY_XFER, InvestTxnType.SELL_XFER, InvestTxnType.MISCINC, InvestTxnType.DIVIDEND_REINVEST, InvestTxnType.MISCEXP]):
                         csvDescription = row['Description']
                         symbol = row['Symbol']
 
