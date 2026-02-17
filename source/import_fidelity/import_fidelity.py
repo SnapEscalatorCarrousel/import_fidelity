@@ -152,9 +152,9 @@ def doMain():
     oldProtocolId = 99
 
     buyStrings = [' BOUGHT ', 'REINVESTMENT ', 'Contributions', 'PURCHASE ']
-    buyXferStrings = [ 'TRANSFER OF ASSETS ACAT RECEIVE' ]
+    buyXferStrings = [ 'TRANSFER OF ASSETS ACAT RECEIVE', 'TRANSFERRED TO' ]
     sellStrings = ['REDEMPTION ', 'SOLD ', 'IN LIEU OF FRX SHARE']
-    sellXferStrings = [ 'TRANSFER OF ASSETS ACAT DELIVER' ]
+    sellXferStrings = [ 'TRANSFER OF ASSETS ACAT DELIVER', 'TRANSFERRED FROM' ]
     divStrings = ['DIVIDEND RECEIVED ', 'REGULATORY FEE ADJ']
     divReinvestStrings = ['Dividend']
     incStrings = ['LONG-TERM', 'SHORT-TERM']
@@ -426,9 +426,11 @@ def doMain():
 
                         securityAccount = getSecurityAcct(account, csvDescription, symbol)
                         if (not securityAccount):
-                            txt = "ERROR: security account: '%s' '%s' NOT found when processing invest account '%s.' Please manually create security and/or add it to the invest account. Will process as Xfr" %(csvDescription, symbol, account.getAccountName())
-                            importantMessages += txt + '\n';
-                            myPrint(txt)
+                            if (csvDescription != "No Description"):
+                                txt = "ERROR: security account: '%s' '%s' NOT found when processing invest account '%s.' Please manually create security and/or add it to the invest account. Will process as Xfr" %(csvDescription, symbol, account.getAccountName())
+                                importantMessages += txt + '\n';
+                                myPrint(txt)
+                                
                             txnType = InvestTxnType.BANK
                         else:
                             security = securityAccount.getCurrencyType()
