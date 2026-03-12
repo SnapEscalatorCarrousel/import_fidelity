@@ -461,6 +461,16 @@ def doMain():
                                         continue
 
                                     shares = abs(parseAmount(rowQuantity))
+
+                                    # Fix for Fidelity bug in 401k where quantity is listed in Price column
+                                    if (shares == 0.0):
+                                        if 'Price' in row:
+                                            rowQuantity = row['Price']
+                                            shares = abs(parseAmount(rowQuantity))
+                                        elif 'Price ($)' in row:
+                                            rowQuantity = row['Price ($)']
+                                            shares = abs(parseAmount(rowQuantity))
+
                                     price = 1.0 if (totalAmount == 0.0 or shares == 0.0) else totalAmount/shares
 
                                     fields.shares = securityAccount.getCurrencyType().getLongValue(shares)
