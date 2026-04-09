@@ -155,7 +155,7 @@ def doMain():
     buyXferStrings = [ 'TRANSFER OF ASSETS ACAT RECEIVE', 'TRANSFERRED TO' ]
     sellStrings = ['REDEMPTION ', 'SOLD ', 'IN LIEU OF FRX SHARE']
     sellXferStrings = [ 'TRANSFER OF ASSETS ACAT DELIVER', 'TRANSFERRED FROM' ]
-    divStrings = ['DIVIDEND RECEIVED ', 'REGULATORY FEE ADJ']
+    divStrings = ['DIVIDEND RECEIVED ', 'REGULATORY FEE ADJ', 'INTEREST', 'EXEMPT INT' ]
     divReinvestStrings = ['Dividend']
     incStrings = ['LONG-TERM', 'SHORT-TERM']
     miscExpStrings = ['FEE CHARGED', 'TAX PAID']
