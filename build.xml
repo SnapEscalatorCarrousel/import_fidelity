@@ -20,10 +20,8 @@ http://jakarta.apache.org/ant/index.html
   <property name="dist"  value="./dist"/>
   <property name="build" value="./build"/>
   <property name="lib" value="./lib"/>
-  <property name="extprivkeyfilename" value="priv_key"/>
-  <property name="extpubkeyfilename" value="pub_key"/>
-  <property name="extprivkeyfile" value="${user-config-dir}/${extprivkeyfilename}"/>
-  <property name="extpubkeyfile" value="${user-config-dir}/${extpubkeyfilename}"/>
+  <property name="extprivkeyfile" value="${user-config-dir}/priv_key"/>
+  <property name="extpubkeyfile" value="${user-config-dir}/pub_key"/>
   <property name="privkeyid" value="99"/>
   <property name="keypass" value=""/>
 
@@ -42,14 +40,16 @@ http://jakarta.apache.org/ant/index.html
 
   <property name="dist-tmp-dir"  value="${dist}/tmp"/>
 
-  <fail message="Critical files are missing (check ${extprivkeyfile} and ${extpubkeyfile}) Perhaps run 'ant genkeys'?">
+  <fail message="Critical key files are missing from '${user-config-dir}' (check for ${extprivkeyfile} and ${extpubkeyfile}). Perhaps run 'ant genkeys'?">
     <condition>
+      <or>
         <not>
-            <resourcecount count="2">
-                <fileset id="fs" dir="${user-config-dir}"
-                         includes="${extprivkeyfilename},${extpubkeyfilename}"/>
-            </resourcecount>
+          <available file="${extprivkeyfile}"/>
         </not>
+        <not>
+          <available file="${extpubkeyfile}"/>
+        </not>
+      </or>
     </condition>
   </fail>
 
@@ -102,7 +102,7 @@ http://jakarta.apache.org/ant/index.html
           <map from="@{file}:" to=""/>
         </pathconvert>
 
-        <echo level="info" message="${tmp_zip_contents}.....:"/>
+        <echo level="info" message="${tmp_zip_contents}"/>
         <echo level="info" message="---------[end zip contents]---------------"/>
 
       </sequential>
