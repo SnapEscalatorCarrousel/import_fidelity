@@ -360,7 +360,7 @@ def doMain():
                         format_string = "%m/%d/%Y"
                         dateDate = datetime.strptime(date_string, format_string).date()
                     except ValueError:
-                        format_string = "%m/%d/%y"
+                        format_string = "%m-%d-%Y"
                         dateDate = datetime.strptime(date_string, format_string).date()
 
                     dateString = dateDate.strftime('%Y%m%d')
